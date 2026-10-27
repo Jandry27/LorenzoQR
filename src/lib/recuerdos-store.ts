@@ -92,7 +92,8 @@ export async function listarRecuerdos(): Promise<RecuerdoEnviado[]> {
     // Entorno serverless o sin archivos locales
   }
 
-  if (supabaseAdmin) {
+  const esTest = process.env.MEMORIAL_DATA_DIR?.includes('memorial-integracion-') || process.env.MEMORIAL_DATA_DIR?.includes('editorial-memorial-');
+  if (supabaseAdmin && !esTest) {
     try {
       const { data, error } = await supabaseAdmin.from('contributions').select('*').eq('memorial_id', MEMORIAL_ID).order('created_at', { ascending: false });
       if (!error && data) {
@@ -152,7 +153,8 @@ export async function crearRecuerdo(formulario: FormData): Promise<RecuerdoEnvia
   }
 
   // Sincronizar en Supabase
-  if (supabaseAdmin) {
+  const esTest = process.env.MEMORIAL_DATA_DIR?.includes('memorial-integracion-') || process.env.MEMORIAL_DATA_DIR?.includes('editorial-memorial-');
+  if (supabaseAdmin && !esTest) {
     try {
       if (imagen) {
         await supabaseAdmin.storage.from('memorial-media').upload(`recuerdos/${recuerdo.id}.webp`, imagen, { contentType: 'image/webp', upsert: true });
@@ -181,7 +183,8 @@ export async function cambiarEstado(id: string, status: 'approved' | 'rejected')
   const actualizado = { ...recuerdo, status };
   await guardarRegistro(actualizado);
 
-  if (supabaseAdmin) {
+  const esTest = process.env.MEMORIAL_DATA_DIR?.includes('memorial-integracion-') || process.env.MEMORIAL_DATA_DIR?.includes('editorial-memorial-');
+  if (supabaseAdmin && !esTest) {
     try {
       await supabaseAdmin.from('contributions').update({ status, reviewed_at: new Date().toISOString() }).eq('id', id);
     } catch (err) {

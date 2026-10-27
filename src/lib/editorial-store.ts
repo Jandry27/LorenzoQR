@@ -96,7 +96,8 @@ export async function guardarEditorial(value: Record<string, unknown>) {
     const actualizado: EditorialMemorial = { ...contenido, revision: randomUUID() };
     await guardar('memorial.json', actualizado);
 
-    if (supabaseAdmin) {
+    const esTest = process.env.MEMORIAL_DATA_DIR?.includes('editorial-memorial-') || process.env.MEMORIAL_DATA_DIR?.includes('memorial-integracion-');
+    if (supabaseAdmin && !esTest) {
       try {
         await supabaseAdmin.from('memorial_editorial').upsert({
           memorial_id: MEMORIAL_ID,
@@ -125,7 +126,8 @@ export async function guardarFicha(id: string, value: Record<string, unknown>) {
     const actualizado: FichaFotografia = { ...contenido, revision: randomUUID() };
     await guardar(`foto-${id}.json`, actualizado);
 
-    if (supabaseAdmin) {
+    const esTest = process.env.MEMORIAL_DATA_DIR?.includes('editorial-memorial-') || process.env.MEMORIAL_DATA_DIR?.includes('memorial-integracion-');
+    if (supabaseAdmin && !esTest) {
       try {
         const fichasActuales = await leerFichas();
         fichasActuales[id] = actualizado;
