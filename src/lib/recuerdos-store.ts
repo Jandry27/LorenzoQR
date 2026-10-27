@@ -1,0 +1,186 @@
+import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import sharp from 'sharp';
+import { supabaseAdmin } from './supabase';
+
+export const MEMORIAL_ID = '00000000-0000-0000-0000-000000000002';
+export const MAX_FOTO_BYTES = 8 * 1024 * 1024;
+const carpeta = () => path.resolve(/* turbopackIgnore: true */ process.env.MEMORIAL_DATA_DIR || path.join(process.cwd(), '.memorial-data'));
+const idValido = (id: string) => /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(id);
+
+export interface RecuerdoEnviado {
+  id: string;
+  memorial_id: string;
+  author_name: string;
+  author_relationship: string;
+  message: string;
+  has_photo: boolean;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+}
+
+export class ErrorRecuerdo extends Error {
+  constructor(message: string, public status = 400) { super(message); }
+}
+
+async function prepararCarpeta() {
+  const dir = path.join(carpeta(), 'recuerdos');
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
+
+async function guardarRegistro(recuerdo: RecuerdoEnviado) {
+  const dir = await prepararCarpeta();
+  const temporal = path.join(dir, `${recuerdo.id}.${randomUUID()}.tmp`);
+  await writeFile(temporal, JSON.stringify(recuerdo), { mode: 0o600 });
+  await rename(temporal, path.join(dir, `${recuerdo.id}.json`));
+}
+
+export async function leerRecuerdo(id: string): Promise<RecuerdoEnviado | null> {
+  if (!idValido(id)) return null;
+  try {
+    return JSON.parse(await readFile(path.join(carpeta(), 'recuerdos', `${id}.json`), 'utf8')) as RecuerdoEnviado;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  if (supabaseAdmin) {
+    try {
+      const { data } = await supabaseAdmin.from('contributions').select('*').eq('id', id).maybeSingle();
+      if (data) {
+        return {
+          id: data.id,
+          memorial_id: data.memorial_id,
+          author_name: data.author_name,
+          author_relationship: data.author_relationship || '',
+          message: data.message,
+          has_photo: Boolean(data.photo_url),
+          status: data.status,
+          created_at: data.created_at,
+        };
+      }
+    } catch {}
+  }
+  return null;
+}
+
+export async function listarRecuerdos(): Promise<RecuerdoEnviado[]> {
+  const dir = await prepararCarpeta();
+  const archivos = (await readdir(dir)).filter(file => file.endsWith('.json'));
+  const recuerdosLocales = await Promise.all(archivos.map(file => leerRecuerdo(file.slice(0, -5))));
+  const mapa = new Map<string, RecuerdoEnviado>();
+  recuerdosLocales.filter((value): value is RecuerdoEnviado => Boolean(value)).forEach(r => mapa.set(r.id, r));
+
+  if (supabaseAdmin) {
+    try {
+      const { data, error } = await supabaseAdmin.from('contributions').select('*').eq('memorial_id', MEMORIAL_ID).order('created_at', { ascending: false });
+      if (!error && data) {
+        data.forEach(item => {
+          mapa.set(item.id, {
+            id: item.id,
+            memorial_id: item.memorial_id,
+            author_name: item.author_name,
+            author_relationship: item.author_relationship || '',
+            message: item.message,
+            has_photo: Boolean(item.photo_url),
+            status: item.status,
+            created_at: item.created_at,
+          });
+        });
+      }
+    } catch {}
+  }
+
+  return Array.from(mapa.values()).sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+export async function crearRecuerdo(formulario: FormData): Promise<RecuerdoEnviado> {
+  const texto = (key: string) => typeof formulario.get(key) === 'string' ? (formulario.get(key) as string).trim() : '';
+  const author_name = texto('author_name');
+  const author_relationship = texto('author_relationship');
+  const message = texto('message');
+  const foto = formulario.get('photo');
+  const tieneFoto = foto instanceof File && foto.size > 0;
+  if (texto('memorial_id') !== MEMORIAL_ID) throw new ErrorRecuerdo('Este memorial no está disponible.', 404);
+  if (!author_name || author_name.length > 150 || author_relationship.length > 100 || message.length > 5000) throw new ErrorRecuerdo('Revisa tu nombre y el tamaño de tu mensaje.');
+  if (!message && !tieneFoto) throw new ErrorRecuerdo('Añade una fotografía o escribe un recuerdo.');
+  if ((await listarRecuerdos()).length >= 500) throw new ErrorRecuerdo('El álbum necesita una revisión de la familia antes de recibir más recuerdos.', 503);
+
+  let imagen: Buffer | undefined;
+  if (tieneFoto) {
+    if (foto.size > MAX_FOTO_BYTES) throw new ErrorRecuerdo('La fotografía debe pesar menos de 8 MB.', 413);
+    try {
+      const original = Buffer.from(await foto.arrayBuffer());
+      const metadata = await sharp(original, { limitInputPixels: 40_000_000 }).metadata();
+      if (!metadata.format || !['jpeg', 'png', 'webp'].includes(metadata.format) || (metadata.pages ?? 1) > 1) throw new Error('Formato no admitido');
+      // Normaliza orientación y tamaño; la salida no conserva ubicación GPS ni EXIF.
+      imagen = await sharp(original, { limitInputPixels: 40_000_000 }).rotate().resize({ width: 2000, height: 2000, fit: 'inside', withoutEnlargement: true }).webp({ quality: 85 }).toBuffer();
+    } catch { throw new ErrorRecuerdo('No pudimos leer la imagen. Elige una fotografía JPG, PNG o WebP.'); }
+  }
+  const recuerdo: RecuerdoEnviado = {
+    id: randomUUID(), memorial_id: MEMORIAL_ID, author_name, author_relationship, message,
+    has_photo: Boolean(imagen), status: 'pending', created_at: new Date().toISOString(),
+  };
+
+  // Guardar en almacenamiento local
+  if (imagen) await writeFile(path.join(await prepararCarpeta(), `${recuerdo.id}.webp`), imagen, { mode: 0o600, flag: 'wx' });
+  await guardarRegistro(recuerdo);
+
+  // Sincronizar en Supabase
+  if (supabaseAdmin) {
+    try {
+      if (imagen) {
+        await supabaseAdmin.storage.from('memorial-media').upload(`recuerdos/${recuerdo.id}.webp`, imagen, { contentType: 'image/webp', upsert: true });
+      }
+      await supabaseAdmin.from('contributions').insert({
+        id: recuerdo.id,
+        memorial_id: recuerdo.memorial_id,
+        author_name: recuerdo.author_name,
+        author_relationship: recuerdo.author_relationship,
+        message: recuerdo.message,
+        photo_url: tieneFoto ? `/api/recuerdos/${recuerdo.id}/foto` : null,
+        status: recuerdo.status,
+        created_at: recuerdo.created_at,
+      });
+    } catch (err) {
+      console.warn('Sincronización con Supabase diferida:', err);
+    }
+  }
+
+  return recuerdo;
+}
+
+export async function cambiarEstado(id: string, status: 'approved' | 'rejected') {
+  const recuerdo = await leerRecuerdo(id);
+  if (!recuerdo) throw new ErrorRecuerdo('No encontramos este recuerdo.', 404);
+  const actualizado = { ...recuerdo, status };
+  await guardarRegistro(actualizado);
+
+  if (supabaseAdmin) {
+    try {
+      await supabaseAdmin.from('contributions').update({ status, reviewed_at: new Date().toISOString() }).eq('id', id);
+    } catch (err) {
+      console.warn('Actualización en Supabase diferida:', err);
+    }
+  }
+
+  return actualizado;
+}
+
+export async function leerFoto(id: string) {
+  if (!idValido(id)) return null;
+  try {
+    return await readFile(path.join(carpeta(), 'recuerdos', `${id}.webp`));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  if (supabaseAdmin) {
+    try {
+      const { data, error } = await supabaseAdmin.storage.from('memorial-media').download(`recuerdos/${id}.webp`);
+      if (!error && data) {
+        return Buffer.from(await data.arrayBuffer());
+      }
+    } catch {}
+  }
+  return null;
+}
