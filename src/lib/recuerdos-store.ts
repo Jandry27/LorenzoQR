@@ -1,12 +1,21 @@
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import sharp from 'sharp';
 import { supabaseAdmin } from './supabase';
 
 export const MEMORIAL_ID = '00000000-0000-0000-0000-000000000002';
 export const MAX_FOTO_BYTES = 8 * 1024 * 1024;
-const carpeta = () => path.resolve(/* turbopackIgnore: true */ process.env.MEMORIAL_DATA_DIR || path.join(process.cwd(), '.memorial-data'));
+const carpeta = () => {
+  if (process.env.MEMORIAL_DATA_DIR) {
+    return path.resolve(process.env.MEMORIAL_DATA_DIR);
+  }
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NODE_ENV === 'production') {
+    return path.join(os.tmpdir(), '.memorial-data');
+  }
+  return path.resolve(path.join(process.cwd(), '.memorial-data'));
+};
 const idValido = (id: string) => /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(id);
 
 export interface RecuerdoEnviado {
@@ -26,23 +35,31 @@ export class ErrorRecuerdo extends Error {
 
 async function prepararCarpeta() {
   const dir = path.join(carpeta(), 'recuerdos');
-  await mkdir(dir, { recursive: true, mode: 0o700 });
+  try {
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+  } catch {
+    // Si el entorno es de solo lectura, no detenemos el sistema
+  }
   return dir;
 }
 
 async function guardarRegistro(recuerdo: RecuerdoEnviado) {
-  const dir = await prepararCarpeta();
-  const temporal = path.join(dir, `${recuerdo.id}.${randomUUID()}.tmp`);
-  await writeFile(temporal, JSON.stringify(recuerdo), { mode: 0o600 });
-  await rename(temporal, path.join(dir, `${recuerdo.id}.json`));
+  try {
+    const dir = await prepararCarpeta();
+    const temporal = path.join(dir, `${recuerdo.id}.${randomUUID()}.tmp`);
+    await writeFile(temporal, JSON.stringify(recuerdo), { mode: 0o600 });
+    await rename(temporal, path.join(dir, `${recuerdo.id}.json`));
+  } catch (err) {
+    console.warn('Registro en disco local diferido:', err);
+  }
 }
 
 export async function leerRecuerdo(id: string): Promise<RecuerdoEnviado | null> {
   if (!idValido(id)) return null;
   try {
     return JSON.parse(await readFile(path.join(carpeta(), 'recuerdos', `${id}.json`), 'utf8')) as RecuerdoEnviado;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  } catch {
+    // Continuar con Supabase si no está en disco local
   }
   if (supabaseAdmin) {
     try {
@@ -65,11 +82,15 @@ export async function leerRecuerdo(id: string): Promise<RecuerdoEnviado | null> 
 }
 
 export async function listarRecuerdos(): Promise<RecuerdoEnviado[]> {
-  const dir = await prepararCarpeta();
-  const archivos = (await readdir(dir)).filter(file => file.endsWith('.json'));
-  const recuerdosLocales = await Promise.all(archivos.map(file => leerRecuerdo(file.slice(0, -5))));
   const mapa = new Map<string, RecuerdoEnviado>();
-  recuerdosLocales.filter((value): value is RecuerdoEnviado => Boolean(value)).forEach(r => mapa.set(r.id, r));
+  try {
+    const dir = await prepararCarpeta();
+    const archivos = (await readdir(dir)).filter(file => file.endsWith('.json'));
+    const recuerdosLocales = await Promise.all(archivos.map(file => leerRecuerdo(file.slice(0, -5))));
+    recuerdosLocales.filter((value): value is RecuerdoEnviado => Boolean(value)).forEach(r => mapa.set(r.id, r));
+  } catch {
+    // Entorno serverless o sin archivos locales
+  }
 
   if (supabaseAdmin) {
     try {
@@ -122,9 +143,13 @@ export async function crearRecuerdo(formulario: FormData): Promise<RecuerdoEnvia
     has_photo: Boolean(imagen), status: 'pending', created_at: new Date().toISOString(),
   };
 
-  // Guardar en almacenamiento local
-  if (imagen) await writeFile(path.join(await prepararCarpeta(), `${recuerdo.id}.webp`), imagen, { mode: 0o600, flag: 'wx' });
-  await guardarRegistro(recuerdo);
+  // Guardar en almacenamiento local si está disponible
+  try {
+    if (imagen) await writeFile(path.join(await prepararCarpeta(), `${recuerdo.id}.webp`), imagen, { mode: 0o600, flag: 'wx' });
+    await guardarRegistro(recuerdo);
+  } catch (diskErr) {
+    console.warn('Almacenamiento local omitido en serverless:', diskErr);
+  }
 
   // Sincronizar en Supabase
   if (supabaseAdmin) {

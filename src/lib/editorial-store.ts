@@ -1,30 +1,43 @@
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import type { EditorialMemorial, FichaFotografia } from './editorial-types';
 import { ErrorEdicion, esIdFotografia, validarEditorial, validarFicha, validarRevision } from './editorial-validation';
 import { supabaseAdmin } from './supabase';
 import { MEMORIAL_ID } from './recuerdos-store';
 
-const carpeta = () => path.join(path.resolve(/* turbopackIgnore: true */ process.env.MEMORIAL_DATA_DIR || path.join(process.cwd(), '.memorial-data')), 'editorial');
+const carpeta = () => {
+  if (process.env.MEMORIAL_DATA_DIR) {
+    return path.join(path.resolve(process.env.MEMORIAL_DATA_DIR), 'editorial');
+  }
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NODE_ENV === 'production') {
+    return path.join(os.tmpdir(), '.memorial-data', 'editorial');
+  }
+  return path.join(path.resolve(path.join(process.cwd(), '.memorial-data')), 'editorial');
+};
 const predeterminado: EditorialMemorial = { revision: '', dedicatoria: 'Hay recuerdos que nos vuelven a encontrar.', firma: '', legado: [] };
 
 async function leer<T>(nombre: string): Promise<T | null> {
-  try { return JSON.parse(await readFile(path.join(carpeta(), nombre), 'utf8')) as T; }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+  try { return JSON.parse(await readFile(path.join(/* turbopackIgnore: true */ carpeta(), nombre), 'utf8')) as T; }
+  catch { return null; }
 }
 
 async function guardar(nombre: string, value: unknown) {
-  await mkdir(carpeta(), { recursive: true, mode: 0o700 });
-  const anterior = await leer<unknown>(nombre);
-  if (anterior) {
-    const historial = path.join(carpeta(), 'historial');
-    await mkdir(historial, { recursive: true, mode: 0o700 });
-    await writeFile(path.join(historial, `${Date.now()}-${randomUUID()}-${nombre}`), JSON.stringify(anterior), { mode: 0o600, flag: 'wx' });
+  try {
+    await mkdir(carpeta(), { recursive: true, mode: 0o700 });
+    const anterior = await leer<unknown>(nombre);
+    if (anterior) {
+      const historial = path.join(carpeta(), 'historial');
+      await mkdir(historial, { recursive: true, mode: 0o700 });
+      await writeFile(path.join(historial, `${Date.now()}-${randomUUID()}-${nombre}`), JSON.stringify(anterior), { mode: 0o600, flag: 'wx' });
+    }
+    const temporal = path.join(carpeta(), `${randomUUID()}.tmp`);
+    await writeFile(temporal, JSON.stringify(value), { mode: 0o600 });
+    await rename(temporal, path.join(/* turbopackIgnore: true */ carpeta(), nombre));
+  } catch (err) {
+    console.warn('Persistencia local editorial diferida (modo serverless):', err);
   }
-  const temporal = path.join(carpeta(), `${randomUUID()}.tmp`);
-  await writeFile(temporal, JSON.stringify(value), { mode: 0o600 });
-  await rename(temporal, path.join(carpeta(), nombre));
 }
 
 // Serializa las ediciones del servidor local y comprueba revisiones para no pisar otra sesión familiar.
@@ -64,9 +77,9 @@ export async function leerFichas(): Promise<Record<string, FichaFotografia>> {
     } catch {}
   }
 
-  let archivos: string[];
+  let archivos: string[] = [];
   try { archivos = await readdir(carpeta()); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}; throw error; }
+  catch { return {}; }
   const entradas = await Promise.all(archivos.filter(file => file.startsWith('foto-') && file.endsWith('.json')).map(async file => {
     const id = file.slice(5, -5);
     return esIdFotografia(id) ? [id, await leer<FichaFotografia>(file)] as const : null;

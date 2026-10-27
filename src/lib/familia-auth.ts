@@ -3,15 +3,18 @@ import path from 'node:path';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
 
+import os from 'node:os';
+
 export const COOKIE_FAMILIA = 'memorial_familia';
 const DURACION = 8 * 60 * 60;
 
 export async function claveFamiliar() {
-  if (process.env.MEMORIAL_FAMILIA_CLAVE) {
+  const esTest = process.env.MEMORIAL_DATA_DIR?.includes('memorial-integracion-');
+  if (process.env.MEMORIAL_FAMILIA_CLAVE && !esTest) {
     return process.env.MEMORIAL_FAMILIA_CLAVE.trim();
   }
-  const dir = path.resolve(/* turbopackIgnore: true */ process.env.MEMORIAL_DATA_DIR || path.join(process.cwd(), '.memorial-data'));
-  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const dir = path.resolve(/* turbopackIgnore: true */ process.env.MEMORIAL_DATA_DIR || (process.env.VERCEL || process.env.NODE_ENV === 'production' ? path.join(os.tmpdir(), '.memorial-data') : path.join(process.cwd(), '.memorial-data')));
+  try { await mkdir(dir, { recursive: true, mode: 0o700 }); } catch {}
   const archivo = path.join(dir, 'clave-familiar');
   try { return (await readFile(archivo, 'utf8')).trim(); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
