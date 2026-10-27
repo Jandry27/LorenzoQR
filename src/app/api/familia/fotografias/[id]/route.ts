@@ -1,13 +1,14 @@
 import { leerJsonLimitado, mismoOrigen, sesionFamiliar } from '@/lib/familia-auth';
 import { guardarFicha } from '@/lib/editorial-store';
-import { ErrorEdicion } from '@/lib/editorial-validation';
-import { cargarAlbum } from '@/lib/recuerdos-publicos';
+import { ErrorEdicion, esIdFotografia } from '@/lib/editorial-validation';
+import { cargarAlbumAdmin } from '@/lib/recuerdos-publicos';
 import { MEMORIAL_ID } from '@/lib/recuerdos-store';
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!mismoOrigen(request) || !await sesionFamiliar()) return new Response(null, { status: 403 });
   const { id } = await params;
-  const album = await cargarAlbum(MEMORIAL_ID);
+  if (!esIdFotografia(id)) return new Response(null, { status: 404 });
+  const album = await cargarAlbumAdmin(MEMORIAL_ID);
   if (!album.memories.some(memory => memory.id === id)) return new Response(null, { status: 404 });
   let value: Record<string, unknown>;
   try { value = await leerJsonLimitado(request, 32 * 1024); }

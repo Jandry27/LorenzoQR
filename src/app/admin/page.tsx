@@ -1,8 +1,19 @@
 import { FamilyLogin, FamilyPanel } from '../../components/FamilyPanel';
 import { sesionFamiliar } from '../../lib/familia-auth';
-import { listarRecuerdos } from '../../lib/recuerdos-store';
+import { cargarAlbumAdmin } from '../../lib/recuerdos-publicos';
+import { MEMORIAL_ID } from '../../lib/recuerdos-store';
 
 export const dynamic = 'force-dynamic';
+
 export default async function FamilyPage() {
-  return await sesionFamiliar() ? <FamilyPanel initial={await listarRecuerdos()} /> : <FamilyLogin />;
+  if (!await sesionFamiliar()) return <FamilyLogin />;
+  const adminData = await cargarAlbumAdmin(MEMORIAL_ID);
+  return (
+    <FamilyPanel
+      initialRecuerdos={adminData.aportaciones}
+      initialEditorial={adminData.editorial}
+      initialMemories={adminData.memories}
+      initialFichas={adminData.fichas}
+    />
+  );
 }

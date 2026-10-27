@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -211,4 +211,110 @@ export async function leerFoto(id: string) {
     } catch {}
   }
   return null;
+}
+
+export async function eliminarRecuerdo(id: string) {
+  if (!idValido(id)) throw new ErrorRecuerdo('Identificador no válido.', 400);
+
+  // Borrar de disco local si existe
+  try {
+    const dir = await prepararCarpeta();
+    await rm(path.join(dir, `${id}.json`), { force: true });
+    await rm(path.join(dir, `${id}.webp`), { force: true });
+  } catch {}
+
+  // Borrar de Supabase
+  const esTest = process.env.MEMORIAL_DATA_DIR?.includes('memorial-integracion-') || process.env.MEMORIAL_DATA_DIR?.includes('editorial-memorial-');
+  if (supabaseAdmin && !esTest) {
+    try {
+      await supabaseAdmin.from('contributions').delete().eq('id', id);
+      await supabaseAdmin.storage.from('memorial-media').remove([`recuerdos/${id}.webp`]);
+      const { data: editorial } = await supabaseAdmin.from('memorial_editorial').select('fichas').eq('memorial_id', MEMORIAL_ID).maybeSingle();
+      if (editorial?.fichas && (editorial.fichas as Record<string, unknown>)[id]) {
+        const fichasActualizadas = { ...(editorial.fichas as Record<string, unknown>) };
+        delete fichasActualizadas[id];
+        await supabaseAdmin.from('memorial_editorial').update({ fichas: fichasActualizadas, updated_at: new Date().toISOString() }).eq('memorial_id', MEMORIAL_ID);
+      }
+    } catch (err) {
+      console.warn('Error al eliminar recuerdo de Supabase:', err);
+    }
+  }
+
+  return { ok: true, id };
+}
+
+export async function crearFotoAdmin(formulario: FormData) {
+  const texto = (key: string) => typeof formulario.get(key) === 'string' ? (formulario.get(key) as string).trim() : '';
+  const titulo = texto('titulo') || 'Un momento especial';
+  const historia = texto('historia');
+  const personas = texto('personas');
+  const lugar = texto('lugar');
+  const autor = texto('autor') || 'Familia Chamba';
+  const anioRaw = texto('anio');
+  const anio = anioRaw ? Number(anioRaw) : null;
+  const foto = formulario.get('photo');
+
+  if (!(foto instanceof File) || foto.size === 0) {
+    throw new ErrorRecuerdo('Selecciona una fotografía para subir al álbum.');
+  }
+  if (foto.size > MAX_FOTO_BYTES) {
+    throw new ErrorRecuerdo('La fotografía debe pesar menos de 8 MB.', 413);
+  }
+
+  let imagen: Buffer;
+  try {
+    const original = Buffer.from(await foto.arrayBuffer());
+    const metadata = await sharp(original, { limitInputPixels: 40_000_000 }).metadata();
+    if (!metadata.format || !['jpeg', 'png', 'webp'].includes(metadata.format) || (metadata.pages ?? 1) > 1) {
+      throw new Error('Formato no admitido');
+    }
+    imagen = await sharp(original, { limitInputPixels: 40_000_000 }).rotate().resize({ width: 2000, height: 2000, fit: 'inside', withoutEnlargement: true }).webp({ quality: 85 }).toBuffer();
+  } catch {
+    throw new ErrorRecuerdo('No pudimos leer la imagen. Elige una fotografía JPG, PNG o WebP.');
+  }
+
+  const id = randomUUID();
+  const recuerdo: RecuerdoEnviado = {
+    id,
+    memorial_id: MEMORIAL_ID,
+    author_name: autor,
+    author_relationship: 'Familia',
+    message: historia || titulo,
+    has_photo: true,
+    status: 'approved',
+    created_at: new Date().toISOString(),
+  };
+
+  try {
+    await writeFile(path.join(await prepararCarpeta(), `${id}.webp`), imagen, { mode: 0o600, flag: 'wx' });
+    await guardarRegistro(recuerdo);
+  } catch {}
+
+  const ficha = { titulo, historia, personas, lugar, autor, anio, revision: randomUUID() };
+
+  const esTest = process.env.MEMORIAL_DATA_DIR?.includes('memorial-integracion-') || process.env.MEMORIAL_DATA_DIR?.includes('editorial-memorial-');
+  if (supabaseAdmin && !esTest) {
+    try {
+      await supabaseAdmin.storage.from('memorial-media').upload(`recuerdos/${id}.webp`, imagen, { contentType: 'image/webp', upsert: true });
+      await supabaseAdmin.from('contributions').insert({
+        id: recuerdo.id,
+        memorial_id: recuerdo.memorial_id,
+        author_name: recuerdo.author_name,
+        author_relationship: recuerdo.author_relationship,
+        message: recuerdo.message,
+        photo_url: `/api/recuerdos/${recuerdo.id}/foto`,
+        status: 'approved',
+        created_at: recuerdo.created_at,
+      });
+
+      const { data: editorial } = await supabaseAdmin.from('memorial_editorial').select('fichas').eq('memorial_id', MEMORIAL_ID).maybeSingle();
+      const fichas = (editorial?.fichas as Record<string, unknown>) || {};
+      fichas[id] = ficha;
+      await supabaseAdmin.from('memorial_editorial').update({ fichas, updated_at: new Date().toISOString() }).eq('memorial_id', MEMORIAL_ID);
+    } catch (err) {
+      console.warn('Error al guardar foto admin en Supabase:', err);
+    }
+  }
+
+  return { recuerdo, ficha };
 }

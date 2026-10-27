@@ -1,4 +1,4 @@
-import { cambiarEstado, ErrorRecuerdo } from '@/lib/recuerdos-store';
+import { cambiarEstado, eliminarRecuerdo, ErrorRecuerdo } from '@/lib/recuerdos-store';
 import { mismoOrigen, sesionFamiliar, leerJsonLimitado } from '@/lib/familia-auth';
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -11,5 +11,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   } catch (error) {
     if (error instanceof ErrorRecuerdo) return Response.json({ error: error.message }, { status: error.status });
     return Response.json({ error: 'No pudimos guardar la revisión.' }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!mismoOrigen(request) || !await sesionFamiliar()) return new Response(null, { status: 403 });
+  try {
+    return Response.json(await eliminarRecuerdo((await params).id));
+  } catch (error) {
+    if (error instanceof ErrorRecuerdo) return Response.json({ error: error.message }, { status: error.status });
+    return Response.json({ error: 'No pudimos eliminar este recuerdo.' }, { status: 500 });
   }
 }

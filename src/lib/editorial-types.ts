@@ -20,6 +20,7 @@ export interface FichaFotografia {
   lugar: string;
   autor: string;
   anio: number | null;
+  oculta?: boolean;
 }
 
 export type TamanoLectura = 'normal' | 'grande' | 'muy-grande';

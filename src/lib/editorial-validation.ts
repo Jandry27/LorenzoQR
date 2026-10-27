@@ -37,5 +37,6 @@ export function validarEditorial(value: Record<string, unknown>): Omit<Editorial
 export function validarFicha(value: Record<string, unknown>): Omit<FichaFotografia, 'revision'> {
   const anio = value.anio ?? null;
   if (anio !== null && (typeof anio !== 'number' || !Number.isInteger(anio) || anio < 1800 || anio > new Date().getFullYear())) throw new ErrorEdicion('Indica un año válido o deja la fecha vacía si no la conoces.');
-  return { titulo: texto(value.titulo, 180, 'Título', true), historia: texto(value.historia, 5000, 'Historia'), personas: texto(value.personas, 500, 'Personas'), lugar: texto(value.lugar, 150, 'Lugar'), autor: texto(value.autor, 150, 'Compartido por'), anio };
+  const oculta = typeof value.oculta === 'boolean' ? value.oculta : undefined;
+  return { titulo: texto(value.titulo, 180, 'Título', true), historia: texto(value.historia, 5000, 'Historia'), personas: texto(value.personas, 500, 'Personas'), lugar: texto(value.lugar, 150, 'Lugar'), autor: texto(value.autor, 150, 'Compartido por'), anio, oculta };
 }
