@@ -19,7 +19,8 @@ import {
   UploadCloud,
   X,
   BookOpen,
-  Edit3
+  Edit3,
+  QrCode
 } from 'lucide-react';
 import type { RecuerdoEnviado } from '../lib/recuerdos-store';
 import type { EditorialMemorial, FichaFotografia } from '../lib/editorial-types';
@@ -396,9 +397,14 @@ export function FamilyPanel({
     <div className="admin-page admin-dashboard">
       {/* Barra superior de navegación */}
       <div className="family-toolbar">
-        <Link className="text-link" href="/">
-          <ArrowLeft size={16} /> Volver al memorial
-        </Link>
+        <div className="toolbar-left-links">
+          <Link className="text-link" href="/">
+            <ArrowLeft size={16} /> Volver al memorial
+          </Link>
+          <Link className="text-link qr-toolbar-link" href="/qr" target="_blank">
+            <QrCode size={16} /> Ver código QR para lápida
+          </Link>
+        </div>
         <button
           className="text-link"
           onClick={async () => {

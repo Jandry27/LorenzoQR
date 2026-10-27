@@ -990,4 +990,138 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   }
 }
 
+.toolbar-left-links {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.qr-toolbar-link {
+  color: var(--primary);
+  font-weight: 500;
+}
+
+/* ========================================================================== */
+/* PÁGINA DEDICADA DE DESCARGA DE CÓDIGO QR                                  */
+/* ========================================================================== */
+.qr-page-container {
+  max-width: 780px;
+  margin: 30px auto 80px;
+  padding: 0 20px;
+}
+.qr-card-main {
+  background: #ffffff;
+  border: 1px solid var(--outline);
+  border-radius: 24px;
+  padding: 40px 32px;
+  box-shadow: 0 10px 30px #00000010;
+  text-align: center;
+}
+.qr-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: #edf7ef;
+  color: #1e5e34;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+.qr-card-main h1 {
+  font-family: var(--font-display);
+  font-size: 38px;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+.qr-subtitle {
+  color: var(--on-surface-secondary);
+  font-size: 15px;
+  max-width: 540px;
+  margin: 0 auto 28px;
+  line-height: 1.6;
+}
+.qr-image-wrapper {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  background: #ffffff;
+  border: 2px solid #e0e8e2;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 4px 16px #0000000a;
+  margin-bottom: 28px;
+}
+.qr-image-wrapper img {
+  border-radius: 8px;
+  max-width: 100%;
+  height: auto;
+}
+.qr-url-display {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--primary);
+  font-weight: 500;
+  word-break: break-all;
+}
+.qr-download-actions {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 34px;
+}
+.qr-btn {
+  width: auto !important;
+  min-width: 220px;
+  text-decoration: none !important;
+}
+.qr-tips-box {
+  background: #f7faf8;
+  border: 1px solid var(--outline);
+  border-radius: 16px;
+  padding: 24px;
+  text-align: left;
+}
+.qr-tips-box h3 {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  color: var(--primary);
+}
+.qr-tips-box ul {
+  padding-left: 20px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13.5px;
+  color: var(--on-surface);
+  line-height: 1.6;
+}
+
+@media (max-width: 600px) {
+  .qr-card-main {
+    padding: 26px 18px;
+  }
+  .qr-card-main h1 {
+    font-size: 28px;
+  }
+  .qr-image-wrapper {
+    padding: 16px;
+  }
+  .qr-download-actions {
+    flex-direction: column;
+  }
+  .qr-download-actions a {
+    width: 100% !important;
+  }
+}
+
+
 
